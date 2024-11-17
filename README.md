@@ -5,6 +5,6 @@
 3. Add `path('admin/', include('massupdate.urls'))`, to urls.py before admin.site.urls line
 
 # Important mentions
-This project was heavily influenced by `burke-software`'s `django-mass-edit`. This project does not reuse any code from it, but this project would not have existed otherwise.
+This project was heavily influenced by `burke-software`'s `django-mass-edit`. This project does not reuse any code from it, though it is heavily inspired by it.
 
 https://github.com/burke-software/django-mass-edit/
