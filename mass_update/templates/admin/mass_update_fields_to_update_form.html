@@ -1,0 +1,21 @@
+{% extends "admin/change_form.html" %}
+{% load i18n admin_modify %}
+
+{% block content %}
+<style>
+    div {
+        display: block;
+    }
+</style>
+<form method="post">
+    {% csrf_token %}
+    <h1>Select fields to update_checkbox</h1>
+    {% for line in field_names %}
+    <div>
+        <input type="checkbox" name="to_update" value="{{ line }}" />
+        {{ line }}
+    </div>
+    {% endfor %}
+    <button type="submit">Submit</button>
+</form>
+{% endblock %}

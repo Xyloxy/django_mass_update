@@ -1,0 +1,19 @@
+{% extends "admin/change_form.html" %}
+{% load i18n admin_modify %}
+
+{% block content %}
+<div id="content-main">
+  <h1>Fields</h1>
+  <div>
+    <span>Should validate data (slower processing):</span>
+    <input type="checkbox" name="to_update" value="{{ line }}" checked/>
+  </div>
+  <br>
+  {% for line in fields_to_update %}
+    <div>
+      <span>{{ line }}</span>
+      <input type="text" name="{{ line }}" value="{{ line }}" checked/>
+    </div>
+  {% endfor %}
+</div>
+{% endblock %}
