@@ -1,6 +1,8 @@
-from django.utils.translation import gettext_lazy as _
-from django.contrib.admin.views.decorators import staff_member_required
+from django.contrib.admin import ModelAdmin, site as default_admin_site
 from django.contrib.admin.templatetags.admin_urls import add_preserved_filters
+from django.contrib.admin.views.decorators import staff_member_required
+
+from django.utils.translation import gettext_lazy as _
 from . import settings
 import hashlib
 from django.http import HttpResponseRedirect
@@ -10,9 +12,15 @@ from django.db.models import QuerySet
 from django.http.request import HttpRequest
 from django.http.response import HttpResponse
 from django.apps import apps
-from django.contrib import admin
 from django.shortcuts import render
 from django.core.exceptions import PermissionDenied
+from django.template.defaulttags import register
+from django.contrib.auth.decorators import permission_required
+
+
+@register.filter(name="mass_update_get_item")
+def get_item(dictionary, key):
+    return dictionary.get(key, "")
 
 
 def get_mass_update_url(model: Any, pks: List[int], session: Any) -> str:
@@ -30,14 +38,13 @@ def get_mass_update_url(model: Any, pks: List[int], session: Any) -> str:
     hash_id = "session-%s" % hashlib.md5(object_ids.encode("utf-8")).hexdigest()
     session[hash_id] = object_ids
     session.save()
-    object_ids = hash_id
 
     return reverse(
         "mass_update_change_view",
         kwargs={
             "app_name": model.app_label,
             "model_name": model.model_name,
-            "object_ids": object_ids,
+            "session_id": hash_id,
         },
     )
 
@@ -75,22 +82,28 @@ def mass_update_action(
 mass_update_action.short_description = _("Mass Update")
 
 
+# @permission_required("mass_update.mass_update", raise_exception=True)
+@staff_member_required
 def mass_update_change_view(
-    request: HttpRequest, app_name: str, model_name: str, object_ids, admin_site=None
+    request: HttpRequest,
+    app_name: str,
+    model_name: str,
+    session_id,
+    admin_site=None,
 ):
-    object_ids: str = request.session.get(object_ids)
+    object_ids: str = request.session.get(session_id)
     object_ids: List[int] = [int(x) for x in object_ids.split(",")]
 
     mass_update = MassUpdate(
         app_name,
         model_name,
-        admin_site or admin.site,
+        admin_site or default_admin_site,
         request,
         object_ids,
     )
 
     if request.method == "POST":
-        mass_update.add_fields_to_update(request.POST.getlist("to_update"))
+        mass_update.set_fields_to_update(request.POST.getlist("to_update"))
         return mass_update.get_view()
     else:
         return mass_update.get_field_update_view()
@@ -99,7 +112,7 @@ def mass_update_change_view(
 mass_update_change_view = staff_member_required(mass_update_change_view)
 
 
-class MassUpdate(admin.ModelAdmin):
+class MassUpdate(ModelAdmin):
     def __init__(self, app_name, model_name, admin_site, request, object_ids):
         self.app_name = app_name
         self.model_name = model_name
@@ -113,8 +126,8 @@ class MassUpdate(admin.ModelAdmin):
         except KeyError:
             raise Exception("Model not registered with the admin site.")
 
-        # if not self.has_change_permission(request, self.model):
-        # raise PermissionDenied
+        # if not self.has_change_permission(self.request, self.model):
+        #     raise PermissionDenied
 
         super(MassUpdate, self).__init__(self.model, admin_site)
 
@@ -145,8 +158,8 @@ class MassUpdate(admin.ModelAdmin):
         for field in self.unique_model_fields:
             yield field.name
 
-    def add_fields_to_update(self, fields):
-        self.fields_to_update.extend(fields)
+    def set_fields_to_update(self, fields):
+        self.fields_to_update = fields
 
     def get_base_context(self):
         from django.contrib.contenttypes.models import ContentType
@@ -184,10 +197,6 @@ class MassUpdate(admin.ModelAdmin):
         ]
 
     def get_field_update_view(self):
-        context = self.get_base_context()
-
-        context.update({""})
-
         return render(
             self.request,
             self.get_template_paths("mass_update_fields_to_update_form"),
@@ -195,10 +204,16 @@ class MassUpdate(admin.ModelAdmin):
         )
 
     def get_view(self):
+        context = self.get_base_context()
+
+        qs = self.model.objects.filter(pk=self.object_ids[0])
+
+        context.update({"field_values": qs.values(*self.fields_to_update)[0]})
+
         return render(
             self.request,
             self.get_template_paths("mass_update_form"),
-            self.get_base_context(),
+            context,
         )
 
 
