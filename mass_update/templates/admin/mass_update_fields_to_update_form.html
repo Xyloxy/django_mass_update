@@ -9,13 +9,15 @@
 </style>
 <form method="post">
     {% csrf_token %}
-    <h1>Select fields to update_checkbox</h1>
-    {% for line in field_names %}
-    <div>
-        <input type="checkbox" name="to_update" value="{{ line }}" />
-        {{ line }}
+    <h1>Select fields to Update</h1>
+    <div class="module aligned form-row field-permissions">
+        {% for line in field_names %}
+        <div class="flex-container">
+            <label>{{ line }}</label>
+            <input type="checkbox" name="to_update" value="{{ line }}" />
+        </div>
+        {% endfor %}
     </div>
-    {% endfor %}
     <button type="submit">Submit</button>
 </form>
 {% endblock %}

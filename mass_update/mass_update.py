@@ -1,26 +1,42 @@
-from django.contrib.admin import ModelAdmin, site as default_admin_site
+from django.apps import apps
+from django.contrib.admin import ModelAdmin, site as default_admin_site, helpers
 from django.contrib.admin.templatetags.admin_urls import add_preserved_filters
 from django.contrib.admin.views.decorators import staff_member_required
-
-from django.utils.translation import gettext_lazy as _
-from . import settings
-import hashlib
-from django.http import HttpResponseRedirect
-from django.urls import reverse
-from typing import Any, List, Generator
 from django.db.models import QuerySet
+
+from django.http import HttpResponseRedirect
 from django.http.request import HttpRequest
 from django.http.response import HttpResponse
-from django.apps import apps
+
 from django.shortcuts import render
-from django.core.exceptions import PermissionDenied
 from django.template.defaulttags import register
-from django.contrib.auth.decorators import permission_required
+from django.urls import reverse
+from django.utils.translation import gettext_lazy as _
+
+import hashlib
+from typing import Any, List, Generator
+
+from .helpers import FormSetMassUpdate, FastMassUpdate, VALID
+
+from django.core.exceptions import ValidationError
 
 
 @register.filter(name="mass_update_get_item")
 def get_item(dictionary, key):
     return dictionary.get(key, "")
+
+
+@register.filter(name="mass_update_stringify")
+def stringify(obj):
+    return ",".join(str(s) for s in obj)
+
+
+def set_session(session, object):
+    hash_id = hashlib.md5(object.encode("utf-8")).hexdigest()
+    hash_id = "session-%s" % hash_id
+    session[hash_id] = object
+    session.save()
+    return hash_id
 
 
 def get_mass_update_url(model: Any, pks: List[int], session: Any) -> str:
@@ -34,10 +50,8 @@ def get_mass_update_url(model: Any, pks: List[int], session: Any) -> str:
     Returns:
         str: Mass update url
     """
-    object_ids = ",".join(str(s) for s in pks)
-    hash_id = "session-%s" % hashlib.md5(object_ids.encode("utf-8")).hexdigest()
-    session[hash_id] = object_ids
-    session.save()
+    object_ids = stringify(pks)
+    hash_id = set_session(session, object_ids)
 
     return reverse(
         "mass_update_change_view",
@@ -103,8 +117,23 @@ def mass_update_change_view(
     )
 
     if request.method == "POST":
-        mass_update.set_fields_to_update(request.POST.getlist("to_update"))
-        return mass_update.get_view()
+        if not request.POST.get("mass_update"):
+            mass_update.fields_to_update = request.POST.getlist("to_update")
+            return mass_update.get_view()
+        else:
+            mass_update.set_processing(form_sets_on=request.POST.get("form_sets_on"))
+
+            fields_to_update = [
+                str(x) for x in request.POST.get("mass_update").split(",")
+            ]
+
+            field_dict = {}
+            for field in fields_to_update:
+                field_dict[field] = request.POST.get(field)
+
+            mass_update.fields_to_update = fields_to_update
+
+            return mass_update.process_change(field_dict)
     else:
         return mass_update.get_field_update_view()
 
@@ -120,6 +149,8 @@ class MassUpdate(ModelAdmin):
         self.request = request
         self.object_ids = object_ids
         self.fields_to_update = []
+
+        self.processing_model = FormSetMassUpdate()
 
         try:
             self.admin_obj = admin_site._registry[self.model]
@@ -158,16 +189,33 @@ class MassUpdate(ModelAdmin):
         for field in self.unique_model_fields:
             yield field.name
 
-    def set_fields_to_update(self, fields):
-        self.fields_to_update = fields
+    @property
+    def admin_url(self):
+        return reverse(
+            "%s:%s_%s_changelist"
+            % (
+                self.admin_site.name,
+                self.model._meta.app_label,
+                self.model._meta.model_name,
+            )
+        )
+
+    @property
+    def base_qs(self):
+        return getattr(self.admin_obj, "massadmin_queryset", self.get_queryset)(
+            self.request
+        )
+
+    def set_processing(self, form_sets_on):
+        if form_sets_on == "on":
+            self.processing_model = FormSetMassUpdate()
+        else:
+            self.processing_model = FastMassUpdate()
 
     def get_base_context(self):
         from django.contrib.contenttypes.models import ContentType
 
-        queryset = getattr(self.admin_obj, "massadmin_queryset", self.get_queryset)(
-            self.request
-        )
-        obj = queryset.get(pk=self.object_ids[0])
+        obj = self.base_qs.get(pk=self.object_ids[0])
 
         return {
             "add": False,
@@ -203,18 +251,70 @@ class MassUpdate(ModelAdmin):
             self.get_base_context(),
         )
 
-    def get_view(self):
+    def get_view(self, error=None):
         context = self.get_base_context()
 
-        qs = self.model.objects.filter(pk=self.object_ids[0])
+        qs = self.base_qs.filter(pk=self.object_ids[0])
+        first_object_values = qs.values(*self.fields_to_update)[0]
 
-        context.update({"field_values": qs.values(*self.fields_to_update)[0]})
+        model_form = self.get_form(
+            self.request, self.base_qs.get(pk=self.object_ids[0])
+        )()
+
+        for field in self.fields_to_update:
+            model_form.initial[field] = first_object_values[field]
+
+        fieldsets = self.admin_obj.get_fieldsets(self.request, qs)
+        for fieldset in fieldsets:
+            fieldset[1]["fields"] = [field for field in fieldset[1]["fields"] if field in self.fields_to_update]
+
+        admin_form = helpers.AdminForm(
+            form=model_form,
+            fieldsets=fieldsets,
+            prepopulated_fields=self.admin_obj.get_prepopulated_fields(
+                self.request, qs
+            ),
+            readonly_fields=self.admin_obj.get_readonly_fields(self.request, qs),
+            model_admin=self.admin_obj,
+        )
+
+        context.update(
+            {
+                "field_values": first_object_values,
+                "admin_form": admin_form,
+                "error": error,
+            }
+        )
 
         return render(
             self.request,
             self.get_template_paths("mass_update_form"),
             context,
         )
+
+    def process_change(self, field_dict):
+        result = self.processing_model.edit_all_values(
+            request=self.request,
+            queryset=self.base_qs,
+            object_ids=self.object_ids,
+            fields_to_update=self.fields_to_update,
+            data=field_dict,
+            model_admin=self,
+        )
+
+        if result == VALID:
+            msg = "Mass update successful. Edited %s objects" % len(self.object_ids)
+            self.message_user(self.request, msg)
+            redirect_url = add_preserved_filters(
+                {
+                    "preserved_filters": self.get_preserved_filters(self.request),
+                    "opts": self.model._meta,
+                },
+                self.admin_url,
+            )
+            return HttpResponseRedirect(redirect_url)
+        else:
+            raise self.get_view(self, result[2])
 
 
 class MassUpdateMixin:
