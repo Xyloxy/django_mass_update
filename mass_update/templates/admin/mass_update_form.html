@@ -1,25 +1,25 @@
-{% extends "admin/change_form.html" %}
+{% extends 'admin/change_form.html' %}
 {% load i18n %}
 
-<script type="text/javascript"
-        src="/static/admin/js/admin/RelatedObjectLookups.js"></script>
+<script type="text/javascript" src="/static/admin/js/admin/RelatedObjectLookups.js"></script>
 
 {% block content %}
-<form method="post">
-  {% csrf_token %}
-  <h1>Mass Update {{ model_name }}</h1>
-  {{ error }}
-  <input name="mass_update" style="display: none"
-         value="{{ fields_to_update | mass_update_stringify }}">
-  <div class="module aligned form-row field-permissions">
-    <div class="flex-container">
-      <label>Should use Form Sets to update data:<br>(slower processing)</label>
-      <input type="checkbox" name="form_sets_on" checked />
+  <form method="post">
+    {% csrf_token %}
+    <h1>Mass Update {{ model_name }}</h1>
+    {% if error %}
+      {{ error }}
+    {% endif %}
+    <input name="mass_update" style="display: none" value="{{ fields_to_update|mass_update_stringify }}" />
+    <div class="module aligned form-row field-permissions">
+      <div class="flex-container">
+        <label>Should use Form Sets to update data:<br />(slower processing)</label>
+        <input type="checkbox" name="form_sets_on" checked />
+      </div>
     </div>
-  </div>
-  {% for fieldset in admin_form %}
-  {% include "admin/includes/fieldset.html" with heading_level=2 prefix="fieldset" id_prefix=0 id_suffix=forloop.counter0 %}
-  {% endfor %}
-  <button type="submit">Submit</button>
-  </div>
-  {% endblock %}
+    {% for fieldset in admin_form %}
+      {% include 'admin/includes/fieldset.html' with heading_level=2 prefix='fieldset' id_prefix=0 id_suffix=forloop.counter0 %}
+    {% endfor %}
+    <button type="submit">Submit</button>
+  </form>
+{% endblock %}

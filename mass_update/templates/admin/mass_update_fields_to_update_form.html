@@ -1,23 +1,23 @@
-{% extends "admin/change_form.html" %}
+{% extends 'admin/change_form.html' %}
 {% load i18n %}
 
 {% block content %}
-<style>
+  <style>
     div {
-        display: block;
+      display: block;
     }
-</style>
-<form method="post">
+  </style>
+  <form method="post">
     {% csrf_token %}
     <h1>Select fields to Update</h1>
     <div class="module aligned form-row field-permissions">
-        {% for line in field_names %}
+      {% for line in field_names %}
         <div class="flex-container">
-            <label>{{ line }}</label>
-            <input type="checkbox" name="to_update" value="{{ line }}" />
+          <label>{{ line }}</label>
+          <input type="checkbox" name="to_update" value="{{ line }}" />
         </div>
-        {% endfor %}
+      {% endfor %}
     </div>
     <button type="submit">Submit</button>
-</form>
+  </form>
 {% endblock %}

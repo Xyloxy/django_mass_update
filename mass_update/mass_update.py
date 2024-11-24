@@ -18,7 +18,7 @@ from typing import Any, List, Generator
 
 from .helpers import FormSetMassUpdate, FastMassUpdate, VALID
 
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied
 
 
 @register.filter(name="mass_update_get_item")
@@ -157,8 +157,10 @@ class MassUpdate(ModelAdmin):
         except KeyError:
             raise Exception("Model not registered with the admin site.")
 
-        # if not self.has_change_permission(self.request, self.model):
-        #     raise PermissionDenied
+        self.obj = self.base_qs.get(pk=self.object_ids[0])
+
+        if not self.admin_obj.has_change_permission(self.request, self.obj):
+            raise PermissionDenied
 
         super(MassUpdate, self).__init__(self.model, admin_site)
 
@@ -215,15 +217,13 @@ class MassUpdate(ModelAdmin):
     def get_base_context(self):
         from django.contrib.contenttypes.models import ContentType
 
-        obj = self.base_qs.get(pk=self.object_ids[0])
-
         return {
             "add": False,
             "change": True,
             "has_add_permission": self.has_add_permission(self.request),
-            "has_change_permission": self.has_change_permission(self.request, obj),
-            "has_view_permission": self.has_view_permission(self.request, obj),
-            "has_delete_permission": self.has_delete_permission(self.request, obj),
+            "has_change_permission": self.has_change_permission(self.request, self.obj),
+            "has_view_permission": self.has_view_permission(self.request, self.obj),
+            "has_delete_permission": self.has_delete_permission(self.request, self.obj),
             "has_file_field": True,
             "has_absolute_url": hasattr(self.model, "get_absolute_url"),
             "form_url": "",
@@ -257,16 +257,18 @@ class MassUpdate(ModelAdmin):
         qs = self.base_qs.filter(pk=self.object_ids[0])
         first_object_values = qs.values(*self.fields_to_update)[0]
 
-        model_form = self.get_form(
-            self.request, self.base_qs.get(pk=self.object_ids[0])
-        )()
+        model_form = self.get_form(self.request, self.obj)()
 
         for field in self.fields_to_update:
             model_form.initial[field] = first_object_values[field]
 
         fieldsets = self.admin_obj.get_fieldsets(self.request, qs)
         for fieldset in fieldsets:
-            fieldset[1]["fields"] = [field for field in fieldset[1]["fields"] if field in self.fields_to_update]
+            fieldset[1]["fields"] = [
+                field
+                for field in fieldset[1]["fields"]
+                if field in self.fields_to_update
+            ]
 
         admin_form = helpers.AdminForm(
             form=model_form,

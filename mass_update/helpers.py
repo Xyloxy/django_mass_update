@@ -136,7 +136,10 @@ class FastMassUpdate:
 
             temp_data = {}
             for field_name, value in data.items():
-                if model_admin.model._meta.get_field(field_name).get_internal_type() == 'ManyToManyField':
+                if (
+                    model_admin.model._meta.get_field(field_name).get_internal_type()
+                    == "ManyToManyField"
+                ):
                     m2m_data[field_name] = value
                 else:
                     temp_data[field_name] = value
@@ -147,8 +150,10 @@ class FastMassUpdate:
             with transaction.atomic():
                 i = 0
                 while i < len(object_ids):
-                    queryset.filter(pk__in=object_ids[i : i + settings.BATCH_SIZE]).update(**data)
-                    
+                    queryset.filter(
+                        pk__in=object_ids[i : i + settings.BATCH_SIZE]
+                    ).update(**data)
+
                     # Handle M2M fields
                     for field in fields_to_update:
                         if hasattr(obj, field) and hasattr(getattr(obj, field), "set"):
