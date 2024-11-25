@@ -16,7 +16,7 @@
       </div>
     </div>
     {% for fieldset in admin_form %}
-      {% include 'admin/includes/fieldset.html' %}
+      {% include 'admin/includes/mass_update_fieldset.html' %}
     {% endfor %}
     <div class="submit-row">
       <input type="submit" value="{% trans 'Save' %}" class="default" name="_save" />

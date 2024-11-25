@@ -1,4 +1,5 @@
 from django.contrib.admin.utils import unquote
+from django.contrib.admin import helpers
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.forms.formsets import all_valid
@@ -78,6 +79,10 @@ class FormSetMassUpdate:
                             request, form, formsets
                         )
                         model_admin.log_change(request, new_object, change_message)
+                    else:
+                        errors = form.errors
+                        errors_list = helpers.AdminErrorList(form, formsets)
+                        raise ValidationError("Not all forms is correct")
 
                 return VALID
 
@@ -150,7 +155,7 @@ class FastMassUpdate:
             m2m_fields = []
             for field in fields_to_update:
                 if hasattr(obj, field) and hasattr(getattr(obj, field), "set"):
-                    m2m_fields.append(getattr(obj, field))
+                    m2m_fields.append(field)
 
             with transaction.atomic():
                 i = 0
@@ -160,6 +165,8 @@ class FastMassUpdate:
                     )
 
                     transaction_objects.update(**data)
+                    m2m_field = getattr(obj, field)
+                    m2m_field.set(m2m_data[field])
 
                     # Handle M2M fields, slow!
                     if m2m_fields:
@@ -168,7 +175,7 @@ class FastMassUpdate:
                                 obj = transaction_objects[j]
                                 m2m_field = getattr(obj, field)
                                 m2m_field.set(m2m_data[field])
-                                obj.save_m2m()
+                                obj.save()
 
                     i += settings.BATCH_SIZE
 

@@ -3,6 +3,7 @@ from django.contrib.admin import ModelAdmin, site as default_admin_site, helpers
 from django.contrib.admin.templatetags.admin_urls import add_preserved_filters
 from django.contrib.admin.views.decorators import staff_member_required
 from django.db.models import QuerySet
+from django.db.models.fields import Field
 
 from django.http import HttpResponseRedirect
 from django.http.request import HttpRequest
@@ -121,6 +122,8 @@ def mass_update_change_view(
     if request.method == "POST":
         if not request.POST.get("mass_update"):
             mass_update.fields_to_update = request.POST.getlist("to_update")
+            if not mass_update.fields_to_update:
+                return mass_update.get_field_update_view()
             return mass_update.get_view()
         else:
             mass_update.set_processing(form_sets_on=request.POST.get("form_sets_on"))
@@ -173,6 +176,9 @@ class MassUpdate(ModelAdmin):
     @property
     def model_fields_names(self) -> Generator[str, Any, Any]:
         for field in self.model_fields:
+            if getattr(field, "unique", True):
+                continue
+
             yield field.name
 
     @property
@@ -257,21 +263,9 @@ class MassUpdate(ModelAdmin):
         context = self.get_base_context()
 
         qs = self.base_qs.filter(pk=self.object_ids[0])
-        first_object_values = qs.values(*self.fields_to_update)[0]
 
         model_form = self.admin_obj.get_form(self.request, self.obj)(instance=self.obj)
         model_form._errors = errors
-
-        for field in self.fields_to_update:
-            model_form.initial[field] = first_object_values[field]
-
-        fieldsets = self.admin_obj.get_fieldsets(self.request, qs)
-        for fieldset in fieldsets:
-            fieldset[1]["fields"] = [
-                field
-                for field in fieldset[1]["fields"]
-                if field in self.fields_to_update
-            ]
 
         admin_form = helpers.AdminForm(
             form=model_form,
@@ -288,7 +282,6 @@ class MassUpdate(ModelAdmin):
 
         context.update(
             {
-                "field_values": first_object_values,
                 "admin_form": admin_form,
                 "error": error,
                 'media': mark_safe(media),
