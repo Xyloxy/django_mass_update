@@ -11,10 +11,12 @@ from django.http.response import HttpResponse
 from django.shortcuts import render
 from django.template.defaulttags import register
 from django.urls import reverse
+from django.utils.safestring import mark_safe
 from django.utils.translation import gettext_lazy as _
 
 import hashlib
 from typing import Any, List, Generator
+import types
 
 from .helpers import FormSetMassUpdate, FastMassUpdate, VALID
 
@@ -204,7 +206,7 @@ class MassUpdate(ModelAdmin):
 
     @property
     def base_qs(self):
-        return getattr(self.admin_obj, "massadmin_queryset", self.get_queryset)(
+        return getattr(self.admin_obj, "massadmin_queryset", self.admin_obj.get_queryset)(
             self.request
         )
 
@@ -251,13 +253,14 @@ class MassUpdate(ModelAdmin):
             self.get_base_context(),
         )
 
-    def get_view(self, error=None):
+    def get_view(self, error=None, errors=None):
         context = self.get_base_context()
 
         qs = self.base_qs.filter(pk=self.object_ids[0])
         first_object_values = qs.values(*self.fields_to_update)[0]
 
-        model_form = self.get_form(self.request, self.obj)()
+        model_form = self.admin_obj.get_form(self.request, self.obj)(instance=self.obj)
+        model_form._errors = errors
 
         for field in self.fields_to_update:
             model_form.initial[field] = first_object_values[field]
@@ -272,19 +275,23 @@ class MassUpdate(ModelAdmin):
 
         admin_form = helpers.AdminForm(
             form=model_form,
-            fieldsets=fieldsets,
+            fieldsets=self.admin_obj.get_fieldsets(self.request, qs),
             prepopulated_fields=self.admin_obj.get_prepopulated_fields(
                 self.request, qs
             ),
             readonly_fields=self.admin_obj.get_readonly_fields(self.request, qs),
             model_admin=self.admin_obj,
         )
+        media = self.media + admin_form.media
+        
+        context.update(self.admin_site.each_context(self.request))
 
         context.update(
             {
                 "field_values": first_object_values,
                 "admin_form": admin_form,
                 "error": error,
+                'media': mark_safe(media),
             }
         )
 
@@ -316,7 +323,7 @@ class MassUpdate(ModelAdmin):
             )
             return HttpResponseRedirect(redirect_url)
         else:
-            raise self.get_view(self, result[2])
+            raise self.get_view(self, result[2], result[1])
 
 
 class MassUpdateMixin:

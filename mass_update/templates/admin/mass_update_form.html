@@ -1,8 +1,6 @@
 {% extends 'admin/change_form.html' %}
 {% load i18n %}
 
-<script type="text/javascript" src="/static/admin/js/admin/RelatedObjectLookups.js"></script>
-
 {% block content %}
   <form method="post">
     {% csrf_token %}
@@ -18,8 +16,10 @@
       </div>
     </div>
     {% for fieldset in admin_form %}
-      {% include 'admin/includes/fieldset.html' with heading_level=2 prefix='fieldset' id_prefix=0 id_suffix=forloop.counter0 %}
+      {% include 'admin/includes/fieldset.html' %}
     {% endfor %}
-    <button type="submit">Submit</button>
+    <div class="submit-row">
+      <input type="submit" value="{% trans 'Save' %}" class="default" name="_save" />
+    </div>
   </form>
 {% endblock %}

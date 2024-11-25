@@ -10,14 +10,16 @@
   <form method="post">
     {% csrf_token %}
     <h1>Select fields to Update</h1>
-    <div class="module aligned form-row field-permissions">
+    <div class="module aligned field-permissions">
       {% for line in field_names %}
-        <div class="flex-container">
+        <div class="flex-container form-row">
           <label>{{ line }}</label>
           <input type="checkbox" name="to_update" value="{{ line }}" />
         </div>
       {% endfor %}
     </div>
-    <button type="submit">Submit</button>
+    <div class="submit-row">
+      <input type="submit" value="{% trans 'Save' %}" class="default" name="_save" />
+    </div>
   </form>
 {% endblock %}
