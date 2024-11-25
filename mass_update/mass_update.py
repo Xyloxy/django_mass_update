@@ -3,7 +3,6 @@ from django.contrib.admin import ModelAdmin, site as default_admin_site, helpers
 from django.contrib.admin.templatetags.admin_urls import add_preserved_filters
 from django.contrib.admin.views.decorators import staff_member_required
 from django.db.models import QuerySet
-from django.db.models.fields import Field
 
 from django.http import HttpResponseRedirect
 from django.http.request import HttpRequest
@@ -17,7 +16,6 @@ from django.utils.translation import gettext_lazy as _
 
 import hashlib
 from typing import Any, List, Generator
-import types
 
 from .helpers import FormSetMassUpdate, FastMassUpdate, VALID
 
