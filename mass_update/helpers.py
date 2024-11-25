@@ -134,6 +134,7 @@ class FastMassUpdate:
             data = self.validate_form(request, model_form, fields_to_update, obj, data)
             m2m_data = {}
 
+            # Get M2M fields and remove them from data
             temp_data = {}
             for field_name, value in data.items():
                 if (
@@ -146,19 +147,28 @@ class FastMassUpdate:
 
             data = temp_data
 
-            # In case of errors Atomic will rollback whole transaction
+            m2m_fields = []
+            for field in fields_to_update:
+                if hasattr(obj, field) and hasattr(getattr(obj, field), "set"):
+                    m2m_fields.append(getattr(obj, field))
+
             with transaction.atomic():
                 i = 0
                 while i < len(object_ids):
-                    queryset.filter(
+                    transaction_objects = queryset.filter(
                         pk__in=object_ids[i : i + settings.BATCH_SIZE]
-                    ).update(**data)
+                    )
 
-                    # Handle M2M fields
-                    for field in fields_to_update:
-                        if hasattr(obj, field) and hasattr(getattr(obj, field), "set"):
-                            m2m_field = getattr(obj, field)
-                            m2m_field.set(m2m_data[field])
+                    transaction_objects.update(**data)
+
+                    # Handle M2M fields, slow!
+                    if m2m_fields:
+                        for j in range(0, len(transaction_objects)):
+                            for field in m2m_fields:
+                                obj = transaction_objects[j]
+                                m2m_field = getattr(obj, field)
+                                m2m_field.set(m2m_data[field])
+                                obj.save_m2m()
 
                     i += settings.BATCH_SIZE
 

@@ -323,7 +323,7 @@ class MassUpdate(ModelAdmin):
             )
             return HttpResponseRedirect(redirect_url)
         else:
-            raise self.get_view(self, result[2], result[1])
+            return self.get_view(result[2], result[1])
 
 
 class MassUpdateMixin:
