@@ -18,6 +18,7 @@ from typing import Any, List
 
 from mass_update.utils.updaters import VALID
 from mass_update.utils.base import MassUpdateBase
+from mass_update.utils.filters import stringify
 
 
 def set_session(session, object: List[int]) -> str:
@@ -48,7 +49,7 @@ def get_mass_update_url(model: Any, pks: List[int], session: Any) -> str:
     Returns:
         str: Mass update url
     """
-    object_ids = ",".join(str(s) for s in pks)
+    object_ids = stringify(pks)
     hash_id = set_session(session, object_ids)
 
     return reverse(
