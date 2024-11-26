@@ -26,6 +26,9 @@ from django.core.exceptions import PermissionDenied
 def get_item(dictionary, key):
     return dictionary.get(key, "")
 
+@register.filter(name="mass_update_get_first_field")
+def get_first_field(item_list):
+    return item_list[0]
 
 @register.filter(name="mass_update_stringify")
 def stringify(obj):
