@@ -164,8 +164,6 @@ class FastMassUpdate:
                     )
 
                     transaction_objects.update(**data)
-                    m2m_field = getattr(obj, field)
-                    m2m_field.set(m2m_data[field])
 
                     # Handle M2M fields, slow!
                     if m2m_fields:
