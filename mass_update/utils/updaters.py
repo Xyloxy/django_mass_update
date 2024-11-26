@@ -1,15 +1,24 @@
-from django.contrib.admin import helpers
+from django.contrib.admin import helpers, ModelAdmin
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.forms.formsets import all_valid
+from django.forms.models import ModelForm
+from django.http.request import HttpRequest
+from django.db.models import QuerySet
 
 import sys
-from . import settings
+from mass_update import settings
 
 VALID = "valid"
 
 
 class FormSetMassUpdate:
+    """
+    Class using built-in django FormSets to save data.
+    It's less efficient than FastMassUpdate, but gives better error logs, and can't
+    cause unforseen issues.
+    """
+
     def edit_all_values(
         self,
         request,
@@ -26,8 +35,8 @@ class FormSetMassUpdate:
             request (HttpRequest): The current request.
             queryset (QuerySet): The queryset of objects to edit.
             object_ids (list): The IDs of the objects to edit.
-            model_form (ModelForm): The form to use for editing.
-            mass_changes_fields (list): The fields to update.
+            fields_to_update (list): The fields to update.
+            model_admin (ModelAdmin): Instance of the calling object.
 
         Returns:
             tuple: A tuple containing the formsets, errors, errors list, and general error.
@@ -91,13 +100,36 @@ class FormSetMassUpdate:
 
 
 class FastMassUpdate:
-    def validate_form(self, request, model_form, fields_to_update, obj, data):
+    """
+    Class using built-in django .update and .set model functions to save data.
+    It's more efficient than FormSetMassUpdate, but gives worse error logs, and could
+    cause unforseen issues.
+    """
+
+    def validate_form(
+        self,
+        request: HttpRequest,
+        model_form: ModelForm,
+        fields_to_update: list,
+        obj: object,
+        data: dict,
+    ) -> dict:
         """
         Validates a single object to test for any user error
 
         Only one form needs to be validated, as the same fields are being used
         for all objects, and form only checks edited fields, other cases are being
         checked during update
+
+        Args:
+            request (HttpRequest): The current request.
+            model_form (ModelAdmin): Instance of model_form of the obj.
+            fields_to_update (list): The fields to update.
+            obj (object): The object to validate.
+            data (dict): Data.
+
+        Returns:
+            dict: Cleaned data.
         """
         form = model_form(request.POST, request.FILES, instance=obj)
         for fieldname, field in list(form.fields.items()):
@@ -118,38 +150,63 @@ class FastMassUpdate:
 
         return form.cleaned_data
 
+    def get_data(self, model_admin: ModelAdmin, data: dict) -> tuple[dict, dict]:
+        """
+        Splits data between m2m and normal fields
+
+        Args:
+            model_admin (ModelAdmin): Instance of the calling object.
+            data (dict): Data.
+
+        Returns:
+            tuple: A tuple containing the data and m2m_data as dicts.
+        """
+        m2m_data = {}
+        data = {}
+
+        for name, value in data.items():
+            if (
+                model_admin.model._meta.get_field(name).get_internal_type()
+                == "ManyToManyField"
+            ):
+                m2m_data[name] = value
+            else:
+                data[name] = value
+
+        return (data, m2m_data)
+
     def edit_all_values(
         self,
-        request,
-        queryset,
-        object_ids,
-        fields_to_update,
-        model_admin,
-        data,
+        request: HttpRequest,
+        queryset: QuerySet,
+        object_ids: list[int],
+        fields_to_update: list,
+        model_admin: ModelAdmin,
+        data: dict,
         **kwargs,
     ):
+        """
+        Edits all values for the given object IDs.
+
+        Args:
+            request (HttpRequest): The current request.
+            queryset (QuerySet): The queryset of objects to edit.
+            object_ids (list): The IDs of the objects to edit.
+            fields_to_update (list): The fields to update.
+            model_admin (ModelAdmin): Instance of the calling object.
+            data (dict): Data.
+
+        Returns:
+            tuple: A tuple containing the formsets, errors, errors list, and general error.
+        """
         object_id = object_ids[0]
 
         try:
             obj = queryset.get(pk=object_id)
-
-            model_form = model_admin.get_form(request, queryset.get(pk=object_ids[0]))
+            model_form = model_admin.get_form(request, obj)
 
             data = self.validate_form(request, model_form, fields_to_update, obj, data)
-            m2m_data = {}
-
-            # Get M2M fields and remove them from data
-            temp_data = {}
-            for field_name, value in data.items():
-                if (
-                    model_admin.model._meta.get_field(field_name).get_internal_type()
-                    == "ManyToManyField"
-                ):
-                    m2m_data[field_name] = value
-                else:
-                    temp_data[field_name] = value
-
-            data = temp_data
+            data, m2m_data = self.get_data(model_admin, data)
 
             m2m_fields = []
             for field in fields_to_update:

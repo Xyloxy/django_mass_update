@@ -1,5 +1,4 @@
-from django.apps import apps
-from django.contrib.admin import ModelAdmin, site as default_admin_site, helpers
+from django.contrib.admin import site as default_admin_site, helpers
 from django.contrib.admin.templatetags.admin_urls import add_preserved_filters
 from django.contrib.admin.views.decorators import staff_member_required
 from django.db.models import QuerySet
@@ -9,42 +8,37 @@ from django.http.request import HttpRequest
 from django.http.response import HttpResponse
 
 from django.shortcuts import render
-from django.template.defaulttags import register
 from django.urls import reverse
 from django.utils.safestring import mark_safe
-from django.utils.translation import gettext_lazy as _
+# TODO(Xyloxy): Add translations
+# from django.utils.translation import gettext_lazy as _
 
 import hashlib
-from typing import Any, List, Generator
+from typing import Any, List
 
-from .helpers import FormSetMassUpdate, FastMassUpdate, VALID
-
-from django.core.exceptions import PermissionDenied
-
-
-@register.filter(name="mass_update_get_item")
-def get_item(dictionary, key):
-    return dictionary.get(key, "")
-
-@register.filter(name="mass_update_get_first_field")
-def get_first_field(item_list):
-    return item_list[0]
-
-@register.filter(name="mass_update_stringify")
-def stringify(obj):
-    return ",".join(str(s) for s in obj)
+from mass_update.utils.updaters import VALID
+from mass_update.utils.base import MassUpdateBase
 
 
-def set_session(session, object):
+def set_session(session, object: List[int]) -> str:
+    """Set session for mass update
+
+    Args:
+        session (Any): User session
+        object (List[int]): Selected objects
+
+    Returns:
+        str: Hashed session id
+    """
     hash_id = hashlib.md5(object.encode("utf-8")).hexdigest()
-    hash_id = "session-%s" % hash_id
     session[hash_id] = object
     session.save()
     return hash_id
 
 
 def get_mass_update_url(model: Any, pks: List[int], session: Any) -> str:
-    """Generates a url for mass update
+    """
+    Generates a url for mass update, and creates a session.
 
     Args:
         model (Any): User selected model metadata
@@ -54,7 +48,7 @@ def get_mass_update_url(model: Any, pks: List[int], session: Any) -> str:
     Returns:
         str: Mass update url
     """
-    object_ids = stringify(pks)
+    object_ids = ",".join(str(s) for s in pks)
     hash_id = set_session(session, object_ids)
 
     return reverse(
@@ -80,7 +74,7 @@ def mass_update_action(
     Returns:
         HttpResponse: Redirect to mass update page
     """
-    selected = queryset.values_list("pk", flat=True)
+    selected: List[Any] = queryset.values_list("pk", flat=True)
 
     redirect_url = get_mass_update_url(
         modeladmin.model._meta, selected, request.session
@@ -97,9 +91,10 @@ def mass_update_action(
     return HttpResponseRedirect(redirect_url)
 
 
-mass_update_action.short_description = _("Mass Update")
+mass_update_action.short_description = "Mass Update"
 
 
+# TODO(Xyloxy): Add custom permissions
 # @permission_required("mass_update.mass_update", raise_exception=True)
 @staff_member_required
 def mass_update_change_view(
@@ -144,123 +139,15 @@ def mass_update_change_view(
         return mass_update.get_field_update_view()
 
 
-mass_update_change_view = staff_member_required(mass_update_change_view)
-
-
-class MassUpdate(ModelAdmin):
-    def __init__(self, app_name, model_name, admin_site, request, object_ids):
-        self.app_name = app_name
-        self.model_name = model_name
-        self.model = apps.get_model(app_name, model_name)
-        self.request = request
-        self.object_ids = object_ids
-        self.fields_to_update = []
-
-        self.processing_model = FormSetMassUpdate()
-
-        try:
-            self.admin_obj = admin_site._registry[self.model]
-        except KeyError:
-            raise Exception("Model not registered with the admin site.")
-
-        self.obj = self.base_qs.get(pk=self.object_ids[0])
-
-        if not self.admin_obj.has_change_permission(self.request, self.obj):
-            raise PermissionDenied
-
-        super(MassUpdate, self).__init__(self.model, admin_site)
-
-    @property
-    def model_fields(self) -> List[Any]:
-        return self.model._meta.get_fields(include_hidden=False)
-
-    @property
-    def model_fields_names(self) -> Generator[str, Any, Any]:
-        for field in self.model_fields:
-            if getattr(field, "unique", True):
-                continue
-
-            yield field.name
-
-    @property
-    def unique_model_fields(self) -> List[Any]:
-        unique_model_fields = []
-
-        for field in self.model_fields:
-            try:
-                if field.unique and field.editable:
-                    unique_model_fields.append(field)
-            except Exception:
-                pass
-
-        return unique_model_fields
-
-    @property
-    def unique_model_fields_names(self) -> Generator[str, Any, Any]:
-        for field in self.unique_model_fields:
-            yield field.name
-
-    @property
-    def admin_url(self):
-        return reverse(
-            "%s:%s_%s_changelist"
-            % (
-                self.admin_site.name,
-                self.model._meta.app_label,
-                self.model._meta.model_name,
-            )
-        )
-
-    @property
-    def base_qs(self):
-        return getattr(self.admin_obj, "massadmin_queryset", self.admin_obj.get_queryset)(
-            self.request
-        )
-
-    def set_processing(self, form_sets_on):
-        if form_sets_on == "on":
-            self.processing_model = FormSetMassUpdate()
-        else:
-            self.processing_model = FastMassUpdate()
-
-    def get_base_context(self):
-        from django.contrib.contenttypes.models import ContentType
-
-        return {
-            "add": False,
-            "change": True,
-            "has_add_permission": self.has_add_permission(self.request),
-            "has_change_permission": self.has_change_permission(self.request, self.obj),
-            "has_view_permission": self.has_view_permission(self.request, self.obj),
-            "has_delete_permission": self.has_delete_permission(self.request, self.obj),
-            "has_file_field": True,
-            "has_absolute_url": hasattr(self.model, "get_absolute_url"),
-            "form_url": "",
-            "opts": self.model._meta,
-            "content_type_id": ContentType.objects.get_for_model(self.model).id,
-            "save_as": self.save_as,
-            "save_on_top": self.save_on_top,
-            "unique_field_names": self.unique_model_fields_names,
-            "field_names": self.model_fields_names,
-            "fields_to_update": self.fields_to_update,
-        }
-
-    def get_template_paths(self, template_name: str) -> List[str]:
-        return [
-            "admin/%s/%s/%s.html"
-            % (self.app_name, self.model._meta.object_name.lower(), template_name),
-            "admin/%s/%s.html" % (self.model._meta.app_label, template_name),
-            "admin/%s.html" % template_name,
-        ]
-
-    def get_field_update_view(self):
+class MassUpdate(MassUpdateBase):
+    def get_field_update_view(self) -> HttpResponse:
         return render(
             self.request,
             self.get_template_paths("mass_update_fields_to_update_form"),
             self.get_base_context(),
         )
 
-    def get_view(self, error=None, errors=None):
+    def get_view(self, error: str = None, errors: List[Any] = None) -> HttpResponse:
         context = self.get_base_context()
 
         qs = self.base_qs.filter(pk=self.object_ids[0])
@@ -278,14 +165,14 @@ class MassUpdate(ModelAdmin):
             model_admin=self.admin_obj,
         )
         media = self.media + admin_form.media
-        
+
         context.update(self.admin_site.each_context(self.request))
 
         context.update(
             {
                 "admin_form": admin_form,
                 "error": error,
-                'media': mark_safe(media),
+                "media": mark_safe(media),
             }
         )
 
@@ -295,7 +182,7 @@ class MassUpdate(ModelAdmin):
             context,
         )
 
-    def process_change(self, field_dict):
+    def process_change(self, field_dict: dict):
         result = self.processing_model.edit_all_values(
             request=self.request,
             queryset=self.base_qs,
